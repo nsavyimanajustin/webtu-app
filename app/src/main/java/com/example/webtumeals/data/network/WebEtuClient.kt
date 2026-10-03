@@ -432,7 +432,7 @@ class WebEtuClient(
         }
 
         val payload = JSONObject().apply {
-            val details = JSONArray().put(detailJson)
+            val details = JSONArray().put(detailJson.toString())
             put("details", details)
         }
 
@@ -456,6 +456,14 @@ class WebEtuClient(
             if (response.code in listOf(200, 201)) {
                 if (text.startsWith("{")) {
                     val json = JSONObject(text)
+                    val dataArr = json.optJSONArray("data")
+                    if (dataArr != null && dataArr.length() > 0) {
+                        val firstItem = dataArr.optJSONObject(0)
+                        if (firstItem != null && !firstItem.optBoolean("status", true)) {
+                            val msg = firstItem.optString("message", "Échec de réservation")
+                            throw RuntimeException(msg)
+                        }
+                    }
                     if (json.optBoolean("success", true)) {
                         return@withContext true
                     }

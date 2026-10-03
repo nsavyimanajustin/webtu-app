@@ -32,8 +32,8 @@ data class MainUiState(
     val selectedLunchDepot: RestaurantDepot? = null,
     val selectedDate: String = "",
     val selectedMealType: String = "DINNER", // "BREAKFAST", "LUNCH", "DINNER"
-    val filterMealType: String = "DINNER", // "ALL", "BREAKFAST", "LUNCH", "DINNER"
-    val filterTiedToSelection: Boolean = true,
+    val filterMealType: String = "ALL", // "ALL", "BREAKFAST", "LUNCH", "DINNER"
+    val filterTiedToSelection: Boolean = false,
     val historyView: Boolean = false, // false = Upcoming, true = Full History
     val reservations: List<MealReservation> = emptyList(),
     val isLoading: Boolean = false,
@@ -112,7 +112,8 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
                 availableDates = dates,
                 selectedDate = tomorrowStr,
                 selectedMealType = "DINNER",
-                filterMealType = "DINNER",
+                filterMealType = "ALL",
+                filterTiedToSelection = false,
                 matriculeInput = preferences.matricule,
                 isConnected = preferences.hasCredentials,
                 studentName = preferences.studentFullName,
@@ -298,7 +299,11 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
 
     fun bookMeal() {
         val state = _uiState.value
-        val depot = state.selectedDepot
+        val depot = if (state.selectedMealType.equals("LUNCH", ignoreCase = true) && state.selectedLunchDepot != null) {
+            state.selectedLunchDepot
+        } else {
+            state.selectedDepot
+        }
         if (depot == null) {
             _uiState.update { it.copy(errorMessage = getStrings(preferences.appLanguage).errorSelectRestaurant) }
             return
@@ -346,17 +351,24 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
             try {
                 val result = repository.autoBookDays(state.availableDates, state.automationMode)
                 val updatedRes = client.getStudentReservations()
-                val msg = if (result.bookedCount > 0) {
-                    val template = getStrings(preferences.appLanguage).autoBookingSummary
-                    String.format(template, result.bookedCount)
-                } else {
-                    getStrings(preferences.appLanguage).autoBookingNone
+                val (succMsg, errMsg) = when {
+                    result.bookedCount > 0 -> {
+                        val template = getStrings(preferences.appLanguage).autoBookingSummary
+                        Pair(String.format(template, result.bookedCount), null)
+                    }
+                    result.errors.isNotEmpty() -> {
+                        Pair(null, "Auto-réservation: ${result.errors.first()}")
+                    }
+                    else -> {
+                        Pair(getStrings(preferences.appLanguage).autoBookingNone, null)
+                    }
                 }
                 _uiState.update {
                     it.copy(
                         isAutoBooking = false,
                         reservations = updatedRes,
-                        successMessage = msg
+                        successMessage = succMsg,
+                        errorMessage = errMsg
                     )
                 }
             } catch (e: Exception) {
