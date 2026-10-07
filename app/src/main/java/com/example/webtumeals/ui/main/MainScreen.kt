@@ -289,6 +289,7 @@ fun MainScreen(
             SettingsDialog(
                 currentMode = state.automationMode,
                 autoOnLaunch = state.autoBookOnLaunch,
+                dailyAutoBookAtNoon = state.dailyAutoBookAtNoon,
                 currentLang = state.currentLanguage,
                 depots = state.depots,
                 selectedResidence = state.selectedDepot,
@@ -297,6 +298,7 @@ fun MainScreen(
                 strings = strings,
                 onModeChange = viewModel::onAutomationModeChange,
                 onAutoOnLaunchChange = viewModel::onAutoBookOnLaunchToggle,
+                onDailyAutoBookAtNoonChange = viewModel::onDailyAutoBookAtNoonToggle,
                 onLangChange = viewModel::onLanguageChange,
                 onSelectResidence = viewModel::onRestaurantSelect,
                 onSelectLunch = viewModel::onLunchRestaurantSelect,
@@ -320,8 +322,7 @@ fun MainScreen(
                 progress = state.downloadProgress,
                 strings = strings,
                 onUpdate = { viewModel.downloadAndInstallUpdate(context) },
-                onOpenBrowser = { viewModel.openReleasePage(context) },
-                onDismiss = { viewModel.dismissUpdateDialog() }
+                onOpenBrowser = { viewModel.openReleasePage(context) }
             )
         }
     }
@@ -1044,6 +1045,7 @@ fun ReservationItemCard(
 fun SettingsDialog(
     currentMode: String,
     autoOnLaunch: Boolean,
+    dailyAutoBookAtNoon: Boolean,
     currentLang: String,
     depots: List<RestaurantDepot>,
     selectedResidence: RestaurantDepot?,
@@ -1052,6 +1054,7 @@ fun SettingsDialog(
     strings: com.example.webtumeals.ui.i18n.AppStrings,
     onModeChange: (String) -> Unit,
     onAutoOnLaunchChange: (Boolean) -> Unit,
+    onDailyAutoBookAtNoonChange: (Boolean) -> Unit,
     onLangChange: (String) -> Unit,
     onSelectResidence: (RestaurantDepot) -> Unit,
     onSelectLunch: (RestaurantDepot?) -> Unit,
@@ -1109,6 +1112,24 @@ fun SettingsDialog(
                         Text(strings.modeManual, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
                         Text(strings.modeManualDesc, style = MaterialTheme.typography.labelSmall, color = Color.Gray)
                     }
+                }
+
+                HorizontalDivider()
+
+                // Daily 12:00 PM auto-booking switch
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(strings.dailyAutoBookNoonTitle, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                        Text(strings.dailyAutoBookNoonDesc, style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                    }
+                    Switch(
+                        checked = dailyAutoBookAtNoon,
+                        onCheckedChange = onDailyAutoBookAtNoonChange
+                    )
                 }
 
                 HorizontalDivider()
@@ -1289,17 +1310,31 @@ fun FeedbackDialog(
 }
 
 private fun sendFeedbackEmail(context: Context, satisfaction: String, comments: String) {
-    val deviceModel = "${Build.MANUFACTURER} ${Build.MODEL} (Android ${Build.VERSION.RELEASE})"
-    val subject = "[WebTU Meals Beta Feedback] - $satisfaction"
+    val deviceModel = "${Build.MANUFACTURER} ${Build.MODEL} (Android ${Build.VERSION.RELEASE}, API ${Build.VERSION.SDK_INT})"
+    val appVersion = "v${com.example.webtumeals.BuildConfig.VERSION_NAME} (${com.example.webtumeals.BuildConfig.VERSION_CODE})"
+    val prefs = com.example.webtumeals.data.storage.UserPreferences(context)
+    val studentMatricule = prefs.matricule.ifBlank { "Non connecté" }
+    val preferredDepot = prefs.preferredRestaurantName.ifBlank { "Non spécifié" }
+    val preferredDepotId = prefs.preferredRestaurantId
+    val diagnosticLogs = com.example.webtumeals.data.logging.DiagnosticLogger.getFormattedLogs(40)
+
+    val subject = "[WebTU Meals Diagnostic & Feedback] - $satisfaction ($appVersion)"
     val body = """
-        Retour d'expérience Beta Testeur:
-        ------------------------------------
+        Diagnostic Telemetry & Beta Feedback:
+        ====================================
         Avis général: $satisfaction
         Appareil: $deviceModel
-        
+        Version de l'application: $appVersion
+        Matricule / Utilisateur: $studentMatricule
+        Restaurant préféré: $preferredDepot (ID: $preferredDepotId)
+
         Commentaires & Suggestions:
         ${comments.ifBlank { "Aucun commentaire supplémentaire." }}
-        ------------------------------------
+
+        ====================================
+        Derniers journaux de diagnostic (ONOU & Réseau):
+        $diagnosticLogs
+        ====================================
         Envoyé depuis l'application WebTU Repas Android.
     """.trimIndent()
 
@@ -1312,7 +1347,7 @@ private fun sendFeedbackEmail(context: Context, satisfaction: String, comments: 
     try {
         context.startActivity(Intent.createChooser(intent, "Envoyer vos remarques via..."))
     } catch (e: Exception) {
-        Toast.makeText(context, "Remarques enregistrées localement. Merci !", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "Remarques et diagnostic enregistrés localement. Merci !", Toast.LENGTH_SHORT).show()
     }
 }
 
@@ -1323,30 +1358,43 @@ fun UpdateDialog(
     progress: Float,
     strings: com.example.webtumeals.ui.i18n.AppStrings,
     onUpdate: () -> Unit,
-    onOpenBrowser: () -> Unit,
-    onDismiss: () -> Unit
+    onOpenBrowser: () -> Unit
 ) {
-    AlertDialog(
-        onDismissRequest = {
-            if (!isDownloading) onDismiss()
-        },
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    Icons.Default.SystemUpdate,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(strings.updateAvailableTitle)
-            }
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = {},
+        properties = androidx.compose.ui.window.DialogProperties(
+            dismissOnBackPress = false,
+            dismissOnClickOutside = false
+        )
+    ) {
+        Card(
+            shape = MaterialTheme.shapes.extraLarge,
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            modifier = Modifier.fillMaxWidth().padding(8.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.SystemUpdate,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        strings.updateRequiredTitle,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
                 Text(
-                    text = String.format(strings.updateAvailableDesc, "v${info.latestVersion}"),
+                    text = String.format(strings.updateRequiredDesc, "v${info.latestVersion}"),
                     style = MaterialTheme.typography.bodyMedium
                 )
+
                 if (info.releaseNotes.isNotBlank()) {
                     Card(
                         colors = CardDefaults.cardColors(
@@ -1361,45 +1409,50 @@ fun UpdateDialog(
                         )
                     }
                 }
+
                 if (isDownloading) {
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(strings.downloadingUpdate, style = MaterialTheme.typography.labelMedium)
-                    if (progress > 0f) {
-                        LinearProgressIndicator(
-                            progress = { progress },
-                            modifier = Modifier.fillMaxWidth()
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(strings.downloadingUpdate, style = MaterialTheme.typography.labelMedium)
+                        if (progress > 0f) {
+                            LinearProgressIndicator(
+                                progress = { progress },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        } else {
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedButton(
+                        onClick = onOpenBrowser,
+                        modifier = Modifier.weight(1f),
+                        enabled = !isDownloading
+                    ) {
+                        Icon(
+                            Icons.Default.OpenInBrowser,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
                         )
-                    } else {
-                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Web", maxLines = 1)
+                    }
+
+                    Button(
+                        onClick = onUpdate,
+                        modifier = Modifier.weight(1.5f),
+                        enabled = !isDownloading
+                    ) {
+                        Text(strings.updateNowBtn, maxLines = 1)
                     }
                 }
             }
-        },
-        confirmButton = {
-            Button(
-                onClick = onUpdate,
-                enabled = !isDownloading
-            ) {
-                Text(strings.updateNowBtn)
-            }
-        },
-        dismissButton = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onOpenBrowser) {
-                    Icon(
-                        Icons.Default.OpenInBrowser,
-                        contentDescription = "Navigateur",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
-                TextButton(
-                    onClick = onDismiss,
-                    enabled = !isDownloading
-                ) {
-                    Text(strings.updateLaterBtn)
-                }
-            }
         }
-    )
+    }
 }
 

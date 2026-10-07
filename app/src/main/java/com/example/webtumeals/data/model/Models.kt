@@ -21,7 +21,9 @@ data class StudentProfile(
 
 data class StudentCard(
     val cardId: Long,
-    val anneeAcademiqueId: Long?
+    val anneeAcademiqueId: Long?,
+    val wilayaId: Long? = null,
+    val etablissementId: Long? = null
 )
 
 data class RestaurantDepot(

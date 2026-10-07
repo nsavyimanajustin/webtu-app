@@ -3,8 +3,8 @@ package com.example.webtumeals.data.storage
 import android.content.Context
 import android.content.SharedPreferences
 
-class UserPreferences(context: Context) {
-    private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+class UserPreferences(private val prefs: SharedPreferences) {
+    constructor(context: Context) : this(context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE))
 
     var matricule: String
         get() = prefs.getString(KEY_MATRICULE, "") ?: ""
@@ -38,6 +38,10 @@ class UserPreferences(context: Context) {
         get() = prefs.getBoolean(KEY_AUTO_BOOK_ON_LAUNCH, false)
         set(value) = prefs.edit().putBoolean(KEY_AUTO_BOOK_ON_LAUNCH, value).apply()
 
+    var dailyAutoBookAtNoon: Boolean
+        get() = prefs.getBoolean(KEY_DAILY_AUTO_BOOK_AT_NOON, true)
+        set(value) = prefs.edit().putBoolean(KEY_DAILY_AUTO_BOOK_AT_NOON, value).apply()
+
     var appLanguage: String
         get() = prefs.getString(KEY_APP_LANGUAGE, "FR") ?: "FR"
         set(value) = prefs.edit().putString(KEY_APP_LANGUAGE, value).apply()
@@ -63,6 +67,7 @@ class UserPreferences(context: Context) {
         private const val KEY_LUNCH_RESTAURANT_NAME = "preferred_lunch_restaurant_name"
         private const val KEY_AUTOMATION_MODE = "automation_mode"
         private const val KEY_AUTO_BOOK_ON_LAUNCH = "auto_book_on_launch"
+        private const val KEY_DAILY_AUTO_BOOK_AT_NOON = "daily_auto_book_at_noon"
         private const val KEY_APP_LANGUAGE = "app_language"
         private const val KEY_STUDENT_NAME = "student_full_name"
     }

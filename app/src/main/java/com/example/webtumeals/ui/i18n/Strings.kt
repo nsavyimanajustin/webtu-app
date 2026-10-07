@@ -53,6 +53,8 @@ data class AppStrings(
     val runAutoNow: String,
     val runningAuto: String,
     val autoOnLaunch: String,
+    val dailyAutoBookNoonTitle: String,
+    val dailyAutoBookNoonDesc: String,
     val feedbackBanner: String,
     val feedbackDialogTitle: String,
     val feedbackDialogDesc: String,
@@ -69,12 +71,20 @@ data class AppStrings(
     val campusTag: String,
     val updateAvailableTitle: String,
     val updateAvailableDesc: String,
+    val updateRequiredTitle: String,
+    val updateRequiredDesc: String,
     val updateNowBtn: String,
     val updateLaterBtn: String,
     val updateChecking: String,
     val updateUpToDate: String,
     val downloadingUpdate: String,
-    val updateCheckBtn: String
+    val updateCheckBtn: String,
+    val notificationSuccessTitle: String,
+    val notificationSuccessDesc: String,
+    val notificationAlreadyBookedDesc: String,
+    val notificationErrorTitle: String,
+    val notificationErrorDesc: String,
+    val notificationInfoTitle: String
 )
 
 val StringsFR = AppStrings(
@@ -124,6 +134,8 @@ val StringsFR = AppStrings(
     runAutoNow = "Lancer l'Auto-Réservation (3 Jours)",
     runningAuto = "Auto-réservation en cours...",
     autoOnLaunch = "Auto-réserver à l'ouverture de l'application",
+    dailyAutoBookNoonTitle = "Auto-réservation double checkpoint (23h & 12h)",
+    dailyAutoBookNoonDesc = "Réserve vos 3 repas à 23h00 et vérifie/rattrape les repas non réservés à 12h00.",
     feedbackBanner = "💬 Vous testez la première version ! Partagez vos remarques ou bugs.",
     feedbackDialogTitle = "Donner votre avis (Bêta Testeurs)",
     feedbackDialogDesc = "Vos retours nous aident à améliorer le service pour tous les étudiants.",
@@ -140,12 +152,20 @@ val StringsFR = AppStrings(
     campusTag = "Campus",
     updateAvailableTitle = "Mise à jour disponible",
     updateAvailableDesc = "Une nouvelle version (%s) est disponible. Voulez-vous la télécharger maintenant ?",
+    updateRequiredTitle = "Mise à jour obligatoire",
+    updateRequiredDesc = "Une nouvelle version (%s) est requise pour continuer à utiliser l'application. Veuillez effectuer la mise à jour maintenant.",
     updateNowBtn = "Mettre à jour",
     updateLaterBtn = "Plus tard",
     updateChecking = "Recherche de mises à jour...",
     updateUpToDate = "Votre application est à jour !",
     downloadingUpdate = "Téléchargement en cours...",
-    updateCheckBtn = "Vérifier les mises à jour"
+    updateCheckBtn = "Vérifier les mises à jour",
+    notificationSuccessTitle = "Auto-Réservation Réussie",
+    notificationSuccessDesc = "%d repas ont été réservés automatiquement pour demain (%s).",
+    notificationAlreadyBookedDesc = "Tous vos repas pour demain (%s) sont déjà confirmés et réservés.",
+    notificationErrorTitle = "Erreur Auto-Réservation",
+    notificationErrorDesc = "Échec de l'auto-réservation",
+    notificationInfoTitle = "Repas déjà réservés"
 )
 
 val StringsEN = AppStrings(
@@ -195,6 +215,8 @@ val StringsEN = AppStrings(
     runAutoNow = "Run 3-Day Auto-Booking Now",
     runningAuto = "Auto-booking in progress...",
     autoOnLaunch = "Auto-book on app launch",
+    dailyAutoBookNoonTitle = "Dual-Checkpoint Auto-Booking (11 PM & 12 PM)",
+    dailyAutoBookNoonDesc = "Automatically books 3 meals at 11:00 PM and verifies/catches up unbooked meals at 12:00 PM.",
     feedbackBanner = "💬 You're testing the first version! Share your thoughts or bug reports.",
     feedbackDialogTitle = "Give Feedback (Beta Testers)",
     feedbackDialogDesc = "Your feedback helps improve catering for all university students.",
@@ -211,12 +233,20 @@ val StringsEN = AppStrings(
     campusTag = "Campus",
     updateAvailableTitle = "Update Available",
     updateAvailableDesc = "A new version (%s) is available. Would you like to update now?",
+    updateRequiredTitle = "Mandatory Update",
+    updateRequiredDesc = "A new version (%s) is required to continue using the application. Please update now.",
     updateNowBtn = "Update Now",
     updateLaterBtn = "Later",
     updateChecking = "Checking for updates...",
     updateUpToDate = "Your app is up to date!",
     downloadingUpdate = "Downloading update...",
-    updateCheckBtn = "Check for Updates"
+    updateCheckBtn = "Check for Updates",
+    notificationSuccessTitle = "Auto-Booking Succeeded",
+    notificationSuccessDesc = "%d meals were automatically booked for tomorrow (%s).",
+    notificationAlreadyBookedDesc = "All your meals for tomorrow (%s) are already confirmed and booked.",
+    notificationErrorTitle = "Auto-Booking Error",
+    notificationErrorDesc = "Auto-booking failed",
+    notificationInfoTitle = "Meals Already Booked"
 )
 
 val StringsAR = AppStrings(
@@ -266,6 +296,8 @@ val StringsAR = AppStrings(
     runAutoNow = "تشغيل الحجز التلقائي (3 أيام)",
     runningAuto = "جاري الحجز التلقائي...",
     autoOnLaunch = "حجز تلقائي عند فتح التطبيق",
+    dailyAutoBookNoonTitle = "الحجز التلقائي المزدوج (23:00 و 12:00)",
+    dailyAutoBookNoonDesc = "حجز تلقائي للوجبات الثلاث عند 23:00 مع التحقق والتدارك التلقائي عند 12:00.",
     feedbackBanner = "💬 أنت تجرب الإصدار الأول! شاركنا ملاحظاتك لتحسين التطبيق.",
     feedbackDialogTitle = "ملاحظات المستخدمين",
     feedbackDialogDesc = "آراؤكم تساعدنا في تحسين الخدمة لجميع الطلبة.",
@@ -282,12 +314,20 @@ val StringsAR = AppStrings(
     campusTag = "جامعة",
     updateAvailableTitle = "تحديث جديد متوفر",
     updateAvailableDesc = "يتوفر إصدار جديد (%s). هل ترغب في التحديث الآن؟",
+    updateRequiredTitle = "تحديث إجباري",
+    updateRequiredDesc = "يتطلب متابعة استخدام التطبيق التحديث إلى الإصدار الجديد (%s). يرجى التحديث الآن.",
     updateNowBtn = "تحديث الآن",
     updateLaterBtn = "لاحقاً",
     updateChecking = "جاري التحقق من التحديثات...",
     updateUpToDate = "تطبيقك محدث إلى آخر إصدار!",
     downloadingUpdate = "جاري تحميل التحديث...",
-    updateCheckBtn = "التحقق من التحديثات"
+    updateCheckBtn = "التحقق من التحديثات",
+    notificationSuccessTitle = "نجاح الحجز التلقائي",
+    notificationSuccessDesc = "تم حجز %d وجبات تلقائياً ليوم غد (%s).",
+    notificationAlreadyBookedDesc = "جميع وجباتك ليوم غد (%s) مؤكدة ومحجوزة بالفعل.",
+    notificationErrorTitle = "خطأ في الحجز التلقائي",
+    notificationErrorDesc = "فشل الحجز التلقائي",
+    notificationInfoTitle = "الوجبات محجوزة مسبقاً"
 )
 
 fun getStrings(code: String): AppStrings = when (code.uppercase()) {

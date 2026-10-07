@@ -45,6 +45,7 @@ data class MainUiState(
     val availableDates: List<String> = emptyList(),
     val automationMode: String = "SEMI_AUTO", // "MANUAL", "SEMI_AUTO", "FULL_AUTO"
     val autoBookOnLaunch: Boolean = false,
+    val dailyAutoBookAtNoon: Boolean = true,
     val currentLanguage: String = "FR", // "FR", "EN", "AR"
     val appUpdateInfo: AppUpdateInfo? = null,
     val isCheckingUpdate: Boolean = false,
@@ -105,6 +106,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
 
         val mode = preferences.automationMode
         val autoLaunch = preferences.autoBookOnLaunch
+        val dailyNoon = preferences.dailyAutoBookAtNoon
         val lang = preferences.appLanguage
 
         _uiState.update {
@@ -119,12 +121,16 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
                 studentName = preferences.studentFullName,
                 automationMode = mode,
                 autoBookOnLaunch = autoLaunch,
+                dailyAutoBookAtNoon = dailyNoon,
                 currentLanguage = lang
             )
         }
 
         if (preferences.hasCredentials) {
             refreshData(autoLaunch)
+            if (dailyNoon) {
+                com.example.webtumeals.automation.AutoBookingScheduler.scheduleDailyNoonAlarm(application)
+            }
         }
 
         // Check for updates non-blockingly
@@ -144,6 +150,16 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     fun onAutoBookOnLaunchToggle(enabled: Boolean) {
         repository.setAutoBookOnLaunch(enabled)
         _uiState.update { it.copy(autoBookOnLaunch = enabled) }
+    }
+
+    fun onDailyAutoBookAtNoonToggle(enabled: Boolean) {
+        repository.setDailyAutoBookAtNoon(enabled)
+        _uiState.update { it.copy(dailyAutoBookAtNoon = enabled) }
+        if (enabled) {
+            com.example.webtumeals.automation.AutoBookingScheduler.scheduleDailyNoonAlarm(getApplication())
+        } else {
+            com.example.webtumeals.automation.AutoBookingScheduler.cancelDailyNoonAlarm(getApplication())
+        }
     }
 
     fun onMatriculeChange(newVal: String) {
@@ -242,6 +258,10 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
                         reservations = res.reservations,
                         successMessage = "Connexion réussie !"
                     )
+                }
+
+                if (preferences.dailyAutoBookAtNoon) {
+                    com.example.webtumeals.automation.AutoBookingScheduler.scheduleDailyNoonAlarm(getApplication())
                 }
 
                 if (preferences.autoBookOnLaunch) {
@@ -409,6 +429,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun logout() {
+        com.example.webtumeals.automation.AutoBookingScheduler.cancelDailyNoonAlarm(getApplication())
         repository.logout()
         _uiState.update {
             it.copy(

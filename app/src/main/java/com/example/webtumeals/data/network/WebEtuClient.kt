@@ -1,5 +1,6 @@
 package com.example.webtumeals.data.network
 
+import com.example.webtumeals.data.logging.DiagnosticLogger
 import com.example.webtumeals.data.model.AuthSession
 import com.example.webtumeals.data.model.MealReservation
 import com.example.webtumeals.data.model.RestaurantDepot
@@ -75,8 +76,11 @@ class WebEtuClient(
                     .header("Accept", "application/json")
                     .build()
 
+                DiagnosticLogger.d(TAG, "Attempting WebEtu login at $url for user: $username")
                 httpClient.newCall(request).execute().use { response ->
                     val respBody = response.body?.string().orEmpty()
+                    DiagnosticLogger.logHttp("POST", url, response.code, respBody)
+
                     if (response.isSuccessful) {
                         val json = JSONObject(respBody)
                         val s = AuthSession(
@@ -85,16 +89,21 @@ class WebEtuClient(
                             userName = json.optString("userName", username)
                         )
                         session = s
+                        DiagnosticLogger.i(TAG, "Login successful for user: $username (uuid: ${s.uuid})")
                         return@withContext s
                     } else if (response.code in listOf(401, 403)) {
-                        throw IllegalArgumentException("Identifiants incorrects. Vérifiez votre matricule et mot de passe.")
+                        val err = IllegalArgumentException("Identifiants incorrects. Vérifiez votre matricule et mot de passe.")
+                        DiagnosticLogger.w(TAG, "Authentication rejected for $username (HTTP ${response.code})")
+                        throw err
                     }
                 }
             } catch (e: Exception) {
                 lastException = e
+                DiagnosticLogger.w(TAG, "Login attempt failed at $url: ${e.message}")
                 if (e is IllegalArgumentException) throw e
             }
         }
+        DiagnosticLogger.e(TAG, "All WebEtu login endpoints failed", lastException)
         throw lastException ?: RuntimeException("Échec de connexion au serveur WebEtu.")
     }
 
@@ -108,8 +117,11 @@ class WebEtuClient(
             .header("User-Agent", USER_AGENT)
             .build()
 
+        DiagnosticLogger.d(TAG, "Fetching student profile from $url")
         httpClient.newCall(request).execute().use { response ->
             val text = response.body?.string().orEmpty().trim()
+            DiagnosticLogger.logHttp("GET", url, response.code, text)
+
             if (text.startsWith("{")) {
                 val json = JSONObject(text)
                 StudentProfile(
@@ -135,8 +147,11 @@ class WebEtuClient(
             .header("User-Agent", USER_AGENT)
             .build()
 
+        DiagnosticLogger.d(TAG, "Fetching student DIA cards from $url")
         httpClient.newCall(request).execute().use { response ->
             val text = response.body?.string().orEmpty().trim()
+            DiagnosticLogger.logHttp("GET", url, response.code, text)
+
             val array = if (text.startsWith("[")) {
                 JSONArray(text)
             } else if (text.startsWith("{")) {
@@ -148,9 +163,30 @@ class WebEtuClient(
             for (i in 0 until array.length()) {
                 val obj = array.optJSONObject(i) ?: continue
                 val cardId = obj.optLong("id")
-                val anneeId = if (obj.has("anneeAcademiqueId")) obj.optLong("anneeAcademiqueId") else obj.optLong("idAnneeAcademique")
-                list.add(StudentCard(cardId, anneeId))
+                val anneeId = if (obj.has("anneeAcademiqueId")) {
+                    obj.optLong("anneeAcademiqueId")
+                } else if (obj.has("idAnneeAcademique")) {
+                    obj.optLong("idAnneeAcademique")
+                } else {
+                    null
+                }
+                val wilaya = when {
+                    obj.has("idWilaya") -> obj.optLong("idWilaya")
+                    obj.has("wilayaId") -> obj.optLong("wilayaId")
+                    obj.has("refCodeWilaya") -> obj.optLong("refCodeWilaya")
+                    obj.has("id_wilaya") -> obj.optLong("id_wilaya")
+                    else -> null
+                }?.takeIf { it > 0 }
+
+                val etab = when {
+                    obj.has("idEtablissement") -> obj.optLong("idEtablissement")
+                    obj.has("etablissementId") -> obj.optLong("etablissementId")
+                    else -> null
+                }?.takeIf { it > 0 }
+
+                list.add(StudentCard(cardId, anneeId, wilaya, etab))
             }
+            DiagnosticLogger.i(TAG, "Retrieved ${list.size} DIA card(s): $list")
             list
         }
     }
@@ -164,7 +200,9 @@ class WebEtuClient(
             .header("User-Agent", USER_AGENT)
             .build()
 
+        DiagnosticLogger.d(TAG, "Fetching current academic year from $url")
         httpClient.newCall(request).execute().use { response ->
+            DiagnosticLogger.logHttp("GET", url, response.code, "")
             if (!response.isSuccessful) return@withContext null
             val text = response.body?.string().orEmpty().trim()
             if (text.startsWith("{")) {
@@ -177,7 +215,7 @@ class WebEtuClient(
         }
     }
 
-    suspend fun getWilayaInscription(cardId: Long): Long = withContext(Dispatchers.IO) {
+    suspend fun getWilayaInscription(cardId: Long, fallbackCard: StudentCard? = null): Long = withContext(Dispatchers.IO) {
         val url = "$primaryUrl/infos/wilayaInscription/$cardId"
         val request = Request.Builder()
             .url(url)
@@ -186,16 +224,68 @@ class WebEtuClient(
             .header("User-Agent", USER_AGENT)
             .build()
 
-        httpClient.newCall(request).execute().use { response ->
-            val text = response.body?.string().orEmpty().trim()
+        DiagnosticLogger.d(TAG, "Resolving wilaya inscription for cardId=$cardId")
+        try {
+            httpClient.newCall(request).execute().use { response ->
+                val text = response.body?.string().orEmpty().trim()
+                DiagnosticLogger.logHttp("GET", url, response.code, text)
+
+                val parsedId = parseWilayaIdFromResponse(text)
+                if (parsedId > 0) {
+                    DiagnosticLogger.i(TAG, "Resolved wilaya ID $parsedId from endpoint for cardId=$cardId")
+                    return@withContext parsedId
+                }
+            }
+        } catch (e: Exception) {
+            DiagnosticLogger.w(TAG, "Failed to fetch wilayaInscription from endpoint: ${e.message}")
+        }
+
+        // Fallback: Check DIA metadata or fallback card
+        val fallbackWilaya = fallbackCard?.wilayaId ?: fallbackCard?.etablissementId ?: 0L
+        DiagnosticLogger.i(TAG, "Using fallback wilaya ID: $fallbackWilaya for cardId=$cardId")
+        fallbackWilaya
+    }
+
+    fun parseWilayaIdFromResponse(text: String): Long {
+        if (text.isBlank()) return 0L
+        return try {
             if (text.startsWith("{")) {
                 val json = JSONObject(text)
-                val id = if (json.has("id")) json.optLong("id") else json.optLong("wilayaId")
-                if (id > 0) id else 34L
+                when {
+                    json.has("id") && json.optLong("id") > 0 -> json.optLong("id")
+                    json.has("idWilaya") && json.optLong("idWilaya") > 0 -> json.optLong("idWilaya")
+                    json.has("wilayaId") && json.optLong("wilayaId") > 0 -> json.optLong("wilayaId")
+                    json.has("refCodeWilaya") && json.optLong("refCodeWilaya") > 0 -> json.optLong("refCodeWilaya")
+                    json.has("id_wilaya") && json.optLong("id_wilaya") > 0 -> json.optLong("id_wilaya")
+                    json.has("wilaya_id") && json.optLong("wilaya_id") > 0 -> json.optLong("wilaya_id")
+                    json.has("refWilayaId") && json.optLong("refWilayaId") > 0 -> json.optLong("refWilayaId")
+                    json.optJSONObject("wilaya")?.has("id") == true -> json.getJSONObject("wilaya").optLong("id")
+                    json.optJSONObject("refWilaya")?.has("id") == true -> json.getJSONObject("refWilaya").optLong("id")
+                    else -> 0L
+                }
+            } else if (text.startsWith("[")) {
+                val arr = JSONArray(text)
+                if (arr.length() > 0) {
+                    val first = arr.optJSONObject(0)
+                    if (first != null) {
+                        when {
+                            first.has("id") && first.optLong("id") > 0 -> first.optLong("id")
+                            first.has("idWilaya") && first.optLong("idWilaya") > 0 -> first.optLong("idWilaya")
+                            first.has("wilayaId") && first.optLong("wilayaId") > 0 -> first.optLong("wilayaId")
+                            first.has("refCodeWilaya") && first.optLong("refCodeWilaya") > 0 -> first.optLong("refCodeWilaya")
+                            else -> 0L
+                        }
+                    } else {
+                        arr.optLong(0)
+                    }
+                } else 0L
             } else {
                 val clean = text.trim('"', ' ', '\n', '\r', '\t')
-                clean.toLongOrNull() ?: 34L
+                clean.toLongOrNull() ?: 0L
             }
+        } catch (e: Exception) {
+            DiagnosticLogger.w(TAG, "Error parsing wilaya response: ${e.message}")
+            0L
         }
     }
 
@@ -209,29 +299,71 @@ class WebEtuClient(
             .header("User-Agent", USER_AGENT)
             .build()
 
-        httpClient.newCall(request).execute().use { response ->
-            val text = response.body?.string().orEmpty().trim()
-            if (text.isEmpty()) throw RuntimeException("Aucun enregistrement d'hébergement reçu.")
-            val array = if (text.startsWith("[")) {
-                JSONArray(text)
-            } else if (text.startsWith("{")) {
-                JSONArray().put(JSONObject(text))
-            } else {
-                JSONArray()
-            }
-            for (i in 0 until array.length()) {
-                val row = array.optJSONObject(i) ?: continue
-                if (row.has("idResidance")) {
-                    val rYear = row.optLong("idAnneeAcademique")
-                    if (yearId == null || rYear == yearId || yearId == 0L) {
-                        return@withContext row.getLong("idResidance")
+        DiagnosticLogger.d(TAG, "Fetching housing accommodation records from $url")
+        try {
+            httpClient.newCall(request).execute().use { response ->
+                val text = response.body?.string().orEmpty().trim()
+                DiagnosticLogger.logHttp("GET", url, response.code, text)
+
+                if (text.isEmpty() || !response.isSuccessful) {
+                    DiagnosticLogger.i(TAG, "No accommodation records or empty response. Using non-resident fallback 0L.")
+                    return@withContext 0L
+                }
+
+                val array = if (text.startsWith("[")) {
+                    JSONArray(text)
+                } else if (text.startsWith("{")) {
+                    JSONArray().put(JSONObject(text))
+                } else {
+                    JSONArray()
+                }
+
+                if (array.length() == 0) {
+                    DiagnosticLogger.i(TAG, "demandesHebregement is empty (external student). Fallback to 0L.")
+                    return@withContext 0L
+                }
+
+                for (i in 0 until array.length()) {
+                    val row = array.optJSONObject(i) ?: continue
+                    val resId = extractResidenceIdFromRow(row)
+                    if (resId > 0) {
+                        val rYear = if (row.has("idAnneeAcademique")) row.optLong("idAnneeAcademique") else row.optLong("anneeAcademiqueId")
+                        if (yearId == null || rYear == yearId || yearId == 0L || rYear == 0L) {
+                            DiagnosticLogger.i(TAG, "Found matching approved residence ID: $resId for year: $yearId")
+                            return@withContext resId
+                        }
                     }
                 }
+
+                // Fallback to first row with a valid residence ID
+                for (i in 0 until array.length()) {
+                    val row = array.optJSONObject(i) ?: continue
+                    val resId = extractResidenceIdFromRow(row)
+                    if (resId > 0) {
+                        DiagnosticLogger.i(TAG, "Found approved residence ID from first valid row: $resId")
+                        return@withContext resId
+                    }
+                }
+
+                DiagnosticLogger.i(TAG, "No specific residence found in accommodation records; using 0L.")
+                return@withContext 0L
             }
-            if (array.length() > 0 && array.optJSONObject(0)?.has("idResidance") == true) {
-                return@withContext array.getJSONObject(0).getLong("idResidance")
-            }
-            throw RuntimeException("Aucun enregistrement de résidence trouvé pour cet étudiant.")
+        } catch (e: Exception) {
+            DiagnosticLogger.w(TAG, "Failed to getApprovedResidenceId (${e.message}), defaulting to 0L")
+            0L
+        }
+    }
+
+    private fun extractResidenceIdFromRow(row: JSONObject): Long {
+        return when {
+            row.has("idResidence") && row.optLong("idResidence") > 0 -> row.optLong("idResidence")
+            row.has("idResidance") && row.optLong("idResidance") > 0 -> row.optLong("idResidance")
+            row.has("residenceId") && row.optLong("residenceId") > 0 -> row.optLong("residenceId")
+            row.has("id_residence") && row.optLong("id_residence") > 0 -> row.optLong("id_residence")
+            row.has("id_residance") && row.optLong("id_residance") > 0 -> row.optLong("id_residance")
+            row.has("refResidence") && row.optLong("refResidence") > 0 -> row.optLong("refResidence")
+            row.has("refResidance") && row.optLong("refResidance") > 0 -> row.optLong("refResidance")
+            else -> 0L
         }
     }
 
@@ -259,10 +391,15 @@ class WebEtuClient(
             .header("User-Agent", USER_AGENT)
             .build()
 
+        DiagnosticLogger.d(TAG, "Initiating ONOU login exchange (wilaya=$wilayaId, residence=$residenceId)")
         httpClient.newCall(request).execute().use { response ->
             val respBody = response.body?.string().orEmpty().trim()
+            DiagnosticLogger.logHttp("POST", "$onouUrl/loginpwebetu", response.code, respBody)
+
             if (!response.isSuccessful) {
-                throw RuntimeException("Échec de l'échange ONOU (HTTP ${response.code}): $respBody")
+                val errorMsg = extractOnouErrorMessage(respBody, "Échec de l'échange ONOU (HTTP ${response.code})")
+                DiagnosticLogger.e(TAG, "ONOU login failed: $errorMsg")
+                throw RuntimeException(errorMsg)
             }
             val tok = if (respBody.startsWith("{")) {
                 val json = JSONObject(respBody)
@@ -270,9 +407,14 @@ class WebEtuClient(
             } else {
                 respBody
             }
-            if (tok.isBlank()) throw RuntimeException("ONOU n'a retourné aucun jeton de session.")
+            if (tok.isBlank()) {
+                val errorMsg = "ONOU n'a retourné aucun jeton de session."
+                DiagnosticLogger.e(TAG, errorMsg)
+                throw RuntimeException(errorMsg)
+            }
             onouToken = tok
             onouContext = ctx
+            DiagnosticLogger.i(TAG, "ONOU session acquired successfully")
             tok
         }
     }
@@ -280,13 +422,22 @@ class WebEtuClient(
     suspend fun loginOnouAuto(): String = withContext(Dispatchers.IO) {
         val cards = getStudentCards()
         if (cards.isEmpty()) throw RuntimeException("Aucune carte d'étudiant (DIA) trouvée.")
+
         val yearId = getCurrentAcademicYearId()
+        // Select the most recent active DIA card (matching yearId, or highest academic year ID, or last card)
         val card = if (yearId != null) {
-            cards.firstOrNull { it.anneeAcademiqueId == yearId } ?: cards.first()
+            cards.firstOrNull { it.anneeAcademiqueId == yearId }
+                ?: cards.maxByOrNull { it.anneeAcademiqueId ?: 0L }
+                ?: cards.maxByOrNull { it.cardId }
+                ?: cards.last()
         } else {
-            cards.first()
+            cards.maxByOrNull { it.anneeAcademiqueId ?: 0L }
+                ?: cards.maxByOrNull { it.cardId }
+                ?: cards.last()
         }
-        val wilayaId = getWilayaInscription(card.cardId)
+        DiagnosticLogger.i(TAG, "Selected active DIA card: cardId=${card.cardId}, anneeId=${card.anneeAcademiqueId}")
+
+        val wilayaId = getWilayaInscription(card.cardId, card)
         val residenceId = getApprovedResidenceId(yearId)
         loginOnou(wilayaId, residenceId)
     }
@@ -317,9 +468,16 @@ class WebEtuClient(
             .header("User-Agent", USER_AGENT)
             .build()
 
+        DiagnosticLogger.d(TAG, "Fetching ONOU restaurants from $url")
         httpClient.newCall(request).execute().use { response ->
             val text = response.body?.string().orEmpty().trim()
-            if (!response.isSuccessful) throw RuntimeException("Impossible de charger les restaurants (HTTP ${response.code}): $text")
+            DiagnosticLogger.logHttp("GET", url.toString(), response.code, text)
+
+            if (!response.isSuccessful) {
+                val err = extractOnouErrorMessage(text, "Impossible de charger les restaurants (HTTP ${response.code})")
+                DiagnosticLogger.e(TAG, err)
+                throw RuntimeException(err)
+            }
             val depotsArray = if (text.startsWith("[")) {
                 JSONArray(text)
             } else if (text.startsWith("{")) {
@@ -340,6 +498,7 @@ class WebEtuClient(
                 val dinner = item.optBoolean("dinner", true)
                 list.add(RestaurantDepot(id, fr, ar, isRu, breakfast, lunch, dinner))
             }
+            DiagnosticLogger.i(TAG, "Loaded ${list.size} restaurant depot(s)")
             list
         }
     }
@@ -370,8 +529,11 @@ class WebEtuClient(
             .header("User-Agent", USER_AGENT)
             .build()
 
+        DiagnosticLogger.d(TAG, "Fetching live meal reservations")
         httpClient.newCall(request).execute().use { response ->
             val text = response.body?.string().orEmpty().trim()
+            DiagnosticLogger.logHttp("GET", url.toString(), response.code, text)
+
             if (!response.isSuccessful) return@withContext emptyList()
             val list = mutableListOf<MealReservation>()
             val rawArray: JSONArray = try {
@@ -412,6 +574,7 @@ class WebEtuClient(
                     )
                 )
             }
+            DiagnosticLogger.i(TAG, "Loaded ${list.size} reservation(s)")
             list
         }
     }
@@ -432,7 +595,7 @@ class WebEtuClient(
         }
 
         val payload = JSONObject().apply {
-            val details = JSONArray().put(detailJson.toString())
+            val details = JSONArray().put(detailJson)
             put("details", details)
         }
 
@@ -451,8 +614,11 @@ class WebEtuClient(
             .header("User-Agent", USER_AGENT)
             .build()
 
+        DiagnosticLogger.d(TAG, "Booking meal: date=$dateStr, meal=$mealType (menu=$menuType), depot=$restaurantId")
         httpClient.newCall(request).execute().use { response ->
             val text = response.body?.string().orEmpty().trim()
+            DiagnosticLogger.logHttp("POST", "$onouUrl/reservemeal", response.code, text)
+
             if (response.code in listOf(200, 201)) {
                 if (text.startsWith("{")) {
                     val json = JSONObject(text)
@@ -460,18 +626,23 @@ class WebEtuClient(
                     if (dataArr != null && dataArr.length() > 0) {
                         val firstItem = dataArr.optJSONObject(0)
                         if (firstItem != null && !firstItem.optBoolean("status", true)) {
-                            val msg = firstItem.optString("message", "Échec de réservation")
+                            val msg = extractOnouErrorMessage(firstItem.toString(), "Échec de réservation")
+                            DiagnosticLogger.w(TAG, "Reservation rejected: $msg")
                             throw RuntimeException(msg)
                         }
                     }
                     if (json.optBoolean("success", true)) {
+                        DiagnosticLogger.i(TAG, "Successfully booked $mealType for $dateStr at depot $restaurantId")
                         return@withContext true
                     }
                 } else {
+                    DiagnosticLogger.i(TAG, "Successfully booked $mealType for $dateStr at depot $restaurantId")
                     return@withContext true
                 }
             }
-            throw RuntimeException("Réservation refusée par l'ONOU (Code ${response.code}): $text")
+            val formattedError = extractOnouErrorMessage(text, "Réservation refusée par l'ONOU (Code ${response.code})")
+            DiagnosticLogger.e(TAG, "Meal booking error: $formattedError")
+            throw RuntimeException(formattedError)
         }
     }
 
@@ -494,9 +665,66 @@ class WebEtuClient(
             .header("User-Agent", USER_AGENT)
             .build()
 
+        DiagnosticLogger.d(TAG, "Cancelling meal reservation: id=$reservationId")
         httpClient.newCall(request).execute().use { response ->
-            if (response.isSuccessful) return@withContext true
-            throw RuntimeException("Annulation impossible (HTTP ${response.code})")
+            val text = response.body?.string().orEmpty().trim()
+            DiagnosticLogger.logHttp("DELETE", "$onouUrl/reservemeal/$reservationId", response.code, text)
+
+            if (response.isSuccessful) {
+                DiagnosticLogger.i(TAG, "Successfully cancelled meal reservation: $reservationId")
+                return@withContext true
+            }
+            val formattedError = extractOnouErrorMessage(text, "Annulation impossible (HTTP ${response.code})")
+            DiagnosticLogger.e(TAG, "Meal cancellation error: $formattedError")
+            throw RuntimeException(formattedError)
+        }
+    }
+
+    fun extractOnouErrorMessage(responseBody: String, defaultMsg: String): String {
+        if (responseBody.isBlank()) return defaultMsg
+        try {
+            if (responseBody.startsWith("{")) {
+                val json = JSONObject(responseBody)
+                val dataArr = json.optJSONArray("data")
+                if (dataArr != null && dataArr.length() > 0) {
+                    val firstItem = dataArr.optJSONObject(0)
+                    if (firstItem != null) {
+                        val msg = firstItem.optString("message").ifBlank {
+                            firstItem.optString("error").ifBlank {
+                                firstItem.optString("msg")
+                            }
+                        }
+                        if (msg.isNotBlank()) return formatOnouFriendlyMessage(msg)
+                    }
+                }
+                val msg = json.optString("message").ifBlank {
+                    json.optString("error").ifBlank {
+                        json.optString("msg").ifBlank {
+                            json.optString("libelle").ifBlank {
+                                json.optString("description")
+                            }
+                        }
+                    }
+                }
+                if (msg.isNotBlank()) return formatOnouFriendlyMessage(msg)
+                val errorsArr = json.optJSONArray("errors")
+                if (errorsArr != null && errorsArr.length() > 0) {
+                    return formatOnouFriendlyMessage(errorsArr.optString(0))
+                }
+            }
+        } catch (e: Exception) {
+            DiagnosticLogger.w(TAG, "Failed to parse error body: ${e.message}")
+        }
+        return formatOnouFriendlyMessage(responseBody.take(150))
+    }
+
+    private fun formatOnouFriendlyMessage(raw: String): String {
+        val lower = raw.lowercase()
+        return when {
+            lower.contains("solde") && (lower.contains("insuffisant") || lower.contains("epuise") || lower.contains("épuisé") || lower.contains("insuffisant")) -> "Solde insuffisant pour réserver ce repas"
+            lower.contains("ferme") || lower.contains("fermé") || lower.contains("delai") || lower.contains("délai") || lower.contains("depasse") || lower.contains("dépassé") -> "Réservation fermée ou délai dépassé pour cette date"
+            lower.contains("deja") || lower.contains("déjà") || lower.contains("already") -> "Repas déjà réservé pour ce créneau"
+            else -> raw
         }
     }
 
@@ -521,6 +749,7 @@ class WebEtuClient(
     }
 
     companion object {
+        private const val TAG = "WebEtuClient"
         private const val USER_AGENT = "Dalvik/2.1.0 (Linux; U; Android 14; Build/UP1A.231005.007)"
         private const val ONOU_SIGNATURE_KEY = "pUzHUW2WX54uCzhO8JC2eQ6g1Ol21upw"
     }

@@ -13,7 +13,7 @@
 
 Téléchargez la dernière version installable sans passer par le Play Store :
 
-👉 **[Télécharger WebTUMeals-v1.0.apk (Dernière version)](https://github.com/nsavyimanajustin/webtu-app/releases/latest/download/WebTUMeals-v1.0.apk)**
+👉 **[Télécharger WebTUMeals-v1.1.apk (Dernière version)](https://github.com/nsavyimanajustin/webtu-app/releases/latest/download/WebTUMeals-v1.1.apk)**
 
 Ou accédez à la page des versions : [GitHub Releases](https://github.com/nsavyimanajustin/webtu-app/releases/latest)
 

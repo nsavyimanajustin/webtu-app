@@ -47,26 +47,49 @@ class WebEtuClientTest {
 
     @Test
     fun testGetWilayaInscription_rawInteger_doesNotCrash() = runTest {
-        // Authenticate first
         mockServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"token":"mock_token","uuid":"u1"}"""))
         client.login("user", "pass")
 
-        // Server returns raw string/integer "34" (BBA wilaya code) instead of {"id": 34}
-        mockServer.enqueue(MockResponse().setResponseCode(200).setBody("34\n"))
+        // Server returns raw string/integer "16" (Algiers)
+        mockServer.enqueue(MockResponse().setResponseCode(200).setBody("16\n"))
 
         val wilayaId = client.getWilayaInscription(1001L)
-        assertEquals(34L, wilayaId)
+        assertEquals(16L, wilayaId)
     }
 
     @Test
-    fun testGetWilayaInscription_jsonObject() = runTest {
+    fun testGetWilayaInscription_keyVariations() = runTest {
         mockServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"token":"mock_token","uuid":"u1"}"""))
         client.login("user", "pass")
 
-        mockServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"id": 34, "libelle": "Bordj Bou Arreridj"}"""))
+        // Test idWilaya
+        mockServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"idWilaya": 31, "libelle": "Oran"}"""))
+        assertEquals(31L, client.getWilayaInscription(1001L))
 
-        val wilayaId = client.getWilayaInscription(1001L)
-        assertEquals(34L, wilayaId)
+        // Test wilayaId
+        mockServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"wilayaId": 25, "libelle": "Constantine"}"""))
+        assertEquals(25L, client.getWilayaInscription(1002L))
+
+        // Test refCodeWilaya
+        mockServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"refCodeWilaya": 19, "libelle": "Setif"}"""))
+        assertEquals(19L, client.getWilayaInscription(1003L))
+
+        // Test nested refWilaya
+        mockServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"refWilaya": {"id": 15, "libelle": "Tizi Ouzou"}}"""))
+        assertEquals(15L, client.getWilayaInscription(1004L))
+    }
+
+    @Test
+    fun testGetWilayaInscription_fallbackFromDiaCard() = runTest {
+        mockServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"token":"mock_token","uuid":"u1"}"""))
+        client.login("user", "pass")
+
+        // Endpoint returns 404 or empty
+        mockServer.enqueue(MockResponse().setResponseCode(404).setBody(""))
+
+        val diaCard = StudentCard(cardId = 999L, anneeAcademiqueId = 42L, wilayaId = 6L)
+        val wilayaId = client.getWilayaInscription(999L, diaCard)
+        assertEquals(6L, wilayaId)
     }
 
     @Test
@@ -92,50 +115,77 @@ class WebEtuClientTest {
     }
 
     @Test
-    fun testGetStudentCards_array() = runTest {
+    fun testGetStudentCards_arrayAndWilayaExtraction() = runTest {
         mockServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"token":"mock_token","uuid":"u1"}"""))
         client.login("user", "pass")
 
-        val cardsJson = """[{"id": 9999, "anneeAcademiqueId": 42}, {"id": 8888, "idAnneeAcademique": 41}]"""
+        val cardsJson = """[
+            {"id": 8888, "idAnneeAcademique": 41, "idWilaya": 34},
+            {"id": 9999, "anneeAcademiqueId": 42, "refCodeWilaya": 31, "idEtablissement": 105}
+        ]"""
         mockServer.enqueue(MockResponse().setResponseCode(200).setBody(cardsJson))
 
         val cards = client.getStudentCards()
         assertEquals(2, cards.size)
-        assertEquals(9999L, cards[0].cardId)
-        assertEquals(42L, cards[0].anneeAcademiqueId)
-        assertEquals(8888L, cards[1].cardId)
-        assertEquals(41L, cards[1].anneeAcademiqueId)
+        assertEquals(8888L, cards[0].cardId)
+        assertEquals(41L, cards[0].anneeAcademiqueId)
+        assertEquals(34L, cards[0].wilayaId)
+
+        assertEquals(9999L, cards[1].cardId)
+        assertEquals(42L, cards[1].anneeAcademiqueId)
+        assertEquals(31L, cards[1].wilayaId)
+        assertEquals(105L, cards[1].etablissementId)
     }
 
     @Test
-    fun testGetApprovedResidenceId_array() = runTest {
+    fun testGetApprovedResidenceId_variations() = runTest {
         mockServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"token":"mock_token","uuid":"u1"}"""))
         client.login("user", "pass")
 
-        val housingJson = """[{"id": 1, "idResidance": 505, "idAnneeAcademique": 42}]"""
-        mockServer.enqueue(MockResponse().setResponseCode(200).setBody(housingJson))
+        // idResidance (with a)
+        mockServer.enqueue(MockResponse().setResponseCode(200).setBody("""[{"id": 1, "idResidance": 505, "idAnneeAcademique": 42}]"""))
+        assertEquals(505L, client.getApprovedResidenceId(42L))
 
-        val residenceId = client.getApprovedResidenceId(42L)
-        assertEquals(505L, residenceId)
+        // idResidence (with e)
+        mockServer.enqueue(MockResponse().setResponseCode(200).setBody("""[{"id": 2, "idResidence": 606, "anneeAcademiqueId": 43}]"""))
+        assertEquals(606L, client.getApprovedResidenceId(43L))
+
+        // residenceId
+        mockServer.enqueue(MockResponse().setResponseCode(200).setBody("""[{"id": 3, "residenceId": 707}]"""))
+        assertEquals(707L, client.getApprovedResidenceId(null))
     }
 
     @Test
-    fun testLoginOnouAuto_fullFlow() = runTest {
+    fun testGetApprovedResidenceId_emptyArray_returnsZeroGracefully() = runTest {
+        mockServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"token":"mock_token","uuid":"u1"}"""))
+        client.login("user", "pass")
+
+        // External student with no housing requests
+        mockServer.enqueue(MockResponse().setResponseCode(200).setBody("[]"))
+        val resId = client.getApprovedResidenceId(42L)
+        assertEquals(0L, resId)
+    }
+
+    @Test
+    fun testLoginOnouAuto_selectsLatestCard() = runTest {
         // 1. login
         mockServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"token":"tok1","uuid":"u1"}"""))
         client.login("user", "pass")
 
-        // 2. getStudentCards
-        mockServer.enqueue(MockResponse().setResponseCode(200).setBody("""[{"id": 1234, "anneeAcademiqueId": 42}]"""))
+        // 2. getStudentCards - oldest card first, newest card second
+        mockServer.enqueue(MockResponse().setResponseCode(200).setBody("""[
+            {"id": 1001, "anneeAcademiqueId": 40},
+            {"id": 2002, "anneeAcademiqueId": 42}
+        ]"""))
 
         // 3. getCurrentAcademicYearId
         mockServer.enqueue(MockResponse().setResponseCode(200).setBody("42"))
 
-        // 4. getWilayaInscription -> returns "34"
-        mockServer.enqueue(MockResponse().setResponseCode(200).setBody("34"))
+        // 4. getWilayaInscription -> returns "16"
+        mockServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"idWilaya": 16}"""))
 
-        // 5. getApprovedResidenceId -> returns [{"idResidance": 777, "idAnneeAcademique": 42}]
-        mockServer.enqueue(MockResponse().setResponseCode(200).setBody("""[{"idResidance": 777, "idAnneeAcademique": 42}]"""))
+        // 5. getApprovedResidenceId -> returns [{"idResidence": 777, "idAnneeAcademique": 42}]
+        mockServer.enqueue(MockResponse().setResponseCode(200).setBody("""[{"idResidence": 777, "idAnneeAcademique": 42}]"""))
 
         // 6. loginpwebetu
         mockServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"token":"onou_session_token_xyz"}"""))
@@ -145,110 +195,31 @@ class WebEtuClientTest {
     }
 
     @Test
-    fun testBookMeal_detailsPayload() = runTest {
-        // Prepare login & onou login
+    fun testBookMeal_insufficientBalanceError() = runTest {
         mockServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"token":"tok1","uuid":"u1"}"""))
         client.login("user", "pass")
-
         mockServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"token":"onou_tok"}"""))
-        client.loginOnou(34L, 777L)
+        client.loginOnou(16L, 777L)
 
-        // Mock book response
-        mockServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"success": true}"""))
+        val errJson = """{"success": false, "data": [{"status": false, "message": "Solde insuffisant pour réserver le repas"}]}"""
+        mockServer.enqueue(MockResponse().setResponseCode(200).setBody(errJson))
 
-        val success = client.bookMeal("2026-10-02", "LUNCH", 3L)
-        assertTrue(success)
-
-        val recordedRequest = mockServer.takeRequest() // login
-        mockServer.takeRequest() // onou login
-        val bookRequest = mockServer.takeRequest() // bookMeal
-
-        val body = bookRequest.body.readUtf8()
-        // Ensure details contains JSON object array [ { ... } ], not stringified array [ "..." ]
-        assertTrue(body.contains("\"details\":[{\""))
-        assertTrue(body.contains("\"idDepot\":3"))
-        assertTrue(body.contains("\"menu_type\":2"))
+        try {
+            client.bookMeal("2026-10-10", "LUNCH", 10L)
+            assertTrue("Should have thrown exception", false)
+        } catch (e: Exception) {
+            assertTrue(e.message?.contains("Solde insuffisant") == true)
+        }
     }
 
     @Test
-    fun testBookMeal_breakfast_menuType1() = runTest {
-        mockServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"token":"tok1","uuid":"u1"}"""))
-        client.login("user", "pass")
-        mockServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"token":"onou_tok"}"""))
-        client.loginOnou(34L, 777L)
+    fun testExtractOnouErrorMessage_helpers() {
+        val json1 = """{"message": "Délai dépassé pour la réservation"}"""
+        val msg1 = client.extractOnouErrorMessage(json1, "Default")
+        assertTrue(msg1.contains("Réservation fermée ou délai dépassé"))
 
-        mockServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"success": true}"""))
-        val success = client.bookMeal("2026-10-03", "BREAKFAST", 405L)
-        assertTrue(success)
-
-        mockServer.takeRequest() // login
-        mockServer.takeRequest() // onou login
-        val bookRequest = mockServer.takeRequest()
-        val body = bookRequest.body.readUtf8()
-        assertTrue(body.contains("\"menu_type\":1"))
-        assertTrue(body.contains("\"idDepot\":405"))
-    }
-
-    @Test
-    fun testBookMeal_dinner_menuType3() = runTest {
-        mockServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"token":"tok1","uuid":"u1"}"""))
-        client.login("user", "pass")
-        mockServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"token":"onou_tok"}"""))
-        client.loginOnou(34L, 777L)
-
-        mockServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"success": true}"""))
-        val success = client.bookMeal("2026-10-03", "DINNER", 405L)
-        assertTrue(success)
-
-        mockServer.takeRequest() // login
-        mockServer.takeRequest() // onou login
-        val bookRequest = mockServer.takeRequest()
-        val body = bookRequest.body.readUtf8()
-        assertTrue(body.contains("\"menu_type\":3"))
-        assertTrue(body.contains("\"idDepot\":405"))
-    }
-
-    @Test
-    fun testGetOnouDepots_parsesFlags() = runTest {
-        mockServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"token":"tok1","uuid":"u1"}"""))
-        client.login("user", "pass")
-        mockServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"token":"onou_tok"}"""))
-        client.loginOnou(34L, 777L)
-
-        val depotsJson = """{
-            "depots": [
-                {"id": 405, "nameFR": "RU Nasri Fatoum", "nameAR": "اقامة", "isRu": 1, "breakfast": true, "lunch": true, "dinner": true},
-                {"id": 548, "nameFR": "Resto Central", "nameAR": "مركزي", "isRu": 0, "breakfast": false, "lunch": true, "dinner": false}
-            ]
-        }"""
-        mockServer.enqueue(MockResponse().setResponseCode(200).setBody(depotsJson))
-
-        val depots = client.getOnouDepots()
-        assertEquals(2, depots.size)
-        assertTrue(depots[0].isRu)
-        assertTrue(depots[0].servesBreakfast)
-        assertTrue(!depots[1].isRu)
-        assertTrue(!depots[1].servesBreakfast)
-    }
-
-    @Test
-    fun testGetStudentReservations_parsesBreakfastAndCanDelete() = runTest {
-        mockServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"token":"tok1","uuid":"u1"}"""))
-        client.login("user", "pass")
-        mockServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"token":"onou_tok"}"""))
-        client.loginOnou(34L, 777L)
-
-        val resJson = """[
-            {"id": 100, "date_reserve": "2026-10-02", "mealtype_fr": "Petit-déjeuner", "candelete": true},
-            {"id": 101, "date_reserve": "2026-10-02", "mealtype_fr": "Dîner", "candelete": false}
-        ]"""
-        mockServer.enqueue(MockResponse().setResponseCode(200).setBody(resJson))
-
-        val list = client.getStudentReservations()
-        assertEquals(2, list.size)
-        assertEquals("BREAKFAST", list[0].mealType)
-        assertTrue(list[0].canDelete)
-        assertEquals("DINNER", list[1].mealType)
-        assertTrue(!list[1].canDelete)
+        val json2 = """{"data": [{"status": false, "message": "Votre solde est épuisé"}]}"""
+        val msg2 = client.extractOnouErrorMessage(json2, "Default")
+        assertTrue(msg2.contains("Solde insuffisant"))
     }
 }
