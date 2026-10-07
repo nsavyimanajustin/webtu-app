@@ -1402,8 +1402,22 @@ fun UpdateDialog(
                         ),
                         modifier = Modifier.fillMaxWidth()
                     ) {
+                        val formattedNotes = remember(info.releaseNotes) {
+                            try {
+                                if (info.releaseNotes.contains("<") && info.releaseNotes.contains(">")) {
+                                    androidx.core.text.HtmlCompat.fromHtml(
+                                        info.releaseNotes,
+                                        androidx.core.text.HtmlCompat.FROM_HTML_MODE_COMPACT
+                                    ).toString().trim()
+                                } else {
+                                    info.releaseNotes.trim()
+                                }
+                            } catch (e: Exception) {
+                                info.releaseNotes.trim()
+                            }
+                        }
                         Text(
-                            text = info.releaseNotes,
+                            text = formattedNotes,
                             style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.padding(10.dp)
                         )
