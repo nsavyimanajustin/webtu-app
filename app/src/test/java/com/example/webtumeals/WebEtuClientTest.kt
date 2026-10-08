@@ -5,6 +5,7 @@ import com.example.webtumeals.data.network.WebEtuClient
 import kotlinx.coroutines.test.runTest
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -192,6 +193,35 @@ class WebEtuClientTest {
 
         val onouToken = client.loginOnouAuto()
         assertEquals("onou_session_token_xyz", onouToken)
+    }
+
+    @Test
+    fun testBookMeal_payloadIsStringifiedAndSuccessful() = runTest {
+        mockServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"token":"tok1","uuid":"u1"}"""))
+        client.login("user", "pass")
+        mockServer.enqueue(MockResponse().setResponseCode(200).setBody("""{"token":"onou_tok"}"""))
+        client.loginOnou(16L, 777L)
+
+        val successJson = """{"success": true, "data": [{"date": "2026-10-10", "meal": "غداء", "status": true, "message": "تم الحجز بنجاح"}]}"""
+        mockServer.enqueue(MockResponse().setResponseCode(200).setBody(successJson))
+
+        val result = client.bookMeal("2026-10-10", "LUNCH", 10L)
+        assertTrue(result)
+
+        // Drain login requests
+        mockServer.takeRequest() // login
+        mockServer.takeRequest() // loginpwebetu
+        val bookingRequest = mockServer.takeRequest()
+        val requestBody = bookingRequest.body.readUtf8()
+        val json = JSONObject(requestBody)
+        val detailsArr = json.getJSONArray("details")
+        assertEquals(1, detailsArr.length())
+        val firstDetail = detailsArr.get(0)
+        assertTrue("Detail element MUST be a JSON String, not a JSONObject", firstDetail is String)
+        val innerJson = JSONObject(firstDetail as String)
+        assertEquals("2026-10-10", innerJson.getString("date_reserve"))
+        assertEquals(2, innerJson.getInt("menu_type"))
+        assertEquals(10L, innerJson.getLong("idDepot"))
     }
 
     @Test

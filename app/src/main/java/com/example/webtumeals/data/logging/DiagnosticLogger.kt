@@ -64,6 +64,11 @@ object DiagnosticLogger {
         val cleanUrl = sanitizeUrl(url)
         val cleanSnippet = sanitizeContent(responseSnippet)
         val msg = "$method $cleanUrl -> HTTP $statusCode"
+        if (level == "ERROR") {
+            Log.e("HttpTelemetry", "$msg | ${cleanSnippet.take(200)}")
+        } else {
+            Log.d("HttpTelemetry", "$msg | ${cleanSnippet.take(200)}")
+        }
         addEntry(DiagnosticLogEntry(now(), level, "HttpTelemetry", msg, cleanSnippet.take(300)))
     }
 

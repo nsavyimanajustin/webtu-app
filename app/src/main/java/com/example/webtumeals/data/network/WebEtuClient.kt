@@ -595,7 +595,7 @@ class WebEtuClient(
         }
 
         val payload = JSONObject().apply {
-            val details = JSONArray().put(detailJson)
+            val details = JSONArray().put(detailJson.toString())
             put("details", details)
         }
 
@@ -624,20 +624,27 @@ class WebEtuClient(
                     val json = JSONObject(text)
                     val dataArr = json.optJSONArray("data")
                     if (dataArr != null && dataArr.length() > 0) {
-                        val firstItem = dataArr.optJSONObject(0)
-                        if (firstItem != null && !firstItem.optBoolean("status", true)) {
-                            val msg = extractOnouErrorMessage(firstItem.toString(), "Échec de réservation")
-                            DiagnosticLogger.w(TAG, "Reservation rejected: $msg")
-                            throw RuntimeException(msg)
+                        for (i in 0 until dataArr.length()) {
+                            val item = dataArr.optJSONObject(i) ?: continue
+                            if (!item.optBoolean("status", true)) {
+                                val msg = extractOnouErrorMessage(item.toString(), "Échec de réservation")
+                                DiagnosticLogger.w(TAG, "Reservation rejected: $msg")
+                                throw RuntimeException(msg)
+                            }
                         }
                     }
                     if (json.optBoolean("success", true)) {
                         DiagnosticLogger.i(TAG, "Successfully booked $mealType for $dateStr at depot $restaurantId")
                         return@withContext true
+                    } else {
+                        val msg = extractOnouErrorMessage(text, "Échec de réservation")
+                        DiagnosticLogger.w(TAG, "Reservation rejected: $msg")
+                        throw RuntimeException(msg)
                     }
                 } else {
-                    DiagnosticLogger.i(TAG, "Successfully booked $mealType for $dateStr at depot $restaurantId")
-                    return@withContext true
+                    val msg = "Réponse inattendue du serveur ONOU (non-JSON)"
+                    DiagnosticLogger.e(TAG, "$msg: ${text.take(150)}")
+                    throw RuntimeException(msg)
                 }
             }
             val formattedError = extractOnouErrorMessage(text, "Réservation refusée par l'ONOU (Code ${response.code})")
@@ -721,9 +728,11 @@ class WebEtuClient(
     private fun formatOnouFriendlyMessage(raw: String): String {
         val lower = raw.lowercase()
         return when {
-            lower.contains("solde") && (lower.contains("insuffisant") || lower.contains("epuise") || lower.contains("épuisé") || lower.contains("insuffisant")) -> "Solde insuffisant pour réserver ce repas"
+            raw.contains("لا يمكن الحجز لليوم نفسه") -> "Impossible de réserver pour la date d'aujourd'hui (délai dépassé)"
+            raw.contains("لا توجد حجوزات صالحة") -> "Aucune réservation valide pour ce créneau"
+            raw.contains("رصيد غير كاف") || (lower.contains("solde") && (lower.contains("insuffisant") || lower.contains("epuise") || lower.contains("épuisé"))) -> "Solde insuffisant pour réserver ce repas"
+            raw.contains("تم الحجز مسبقا") || lower.contains("deja") || lower.contains("déjà") || lower.contains("already") -> "Repas déjà réservé pour ce créneau"
             lower.contains("ferme") || lower.contains("fermé") || lower.contains("delai") || lower.contains("délai") || lower.contains("depasse") || lower.contains("dépassé") -> "Réservation fermée ou délai dépassé pour cette date"
-            lower.contains("deja") || lower.contains("déjà") || lower.contains("already") -> "Repas déjà réservé pour ce créneau"
             else -> raw
         }
     }

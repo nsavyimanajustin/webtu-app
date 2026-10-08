@@ -371,10 +371,17 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
             try {
                 val result = repository.autoBookDays(state.availableDates, state.automationMode)
                 val updatedRes = client.getStudentReservations()
+                val meaningfulErrors = result.errors.filterNot { it.contains("aujourd'hui", ignoreCase = true) || it.contains("اليوم نفسه") }
                 val (succMsg, errMsg) = when {
                     result.bookedCount > 0 -> {
                         val template = getStrings(preferences.appLanguage).autoBookingSummary
                         Pair(String.format(template, result.bookedCount), null)
+                    }
+                    meaningfulErrors.isNotEmpty() -> {
+                        Pair(null, "Auto-réservation: ${meaningfulErrors.first()}")
+                    }
+                    result.skippedCount > 0 -> {
+                        Pair(getStrings(preferences.appLanguage).autoBookingNone, null)
                     }
                     result.errors.isNotEmpty() -> {
                         Pair(null, "Auto-réservation: ${result.errors.first()}")
