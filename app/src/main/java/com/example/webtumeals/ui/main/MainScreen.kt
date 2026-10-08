@@ -160,9 +160,14 @@ fun MainScreen(
             ) {
                 item { Spacer(modifier = Modifier.height(4.dp)) }
 
-                // 1. Security / Privacy banner
+                // 1. Trial Status, Legal Disclaimer & Security Banners
                 item {
-                    SecurityNoticeCard(strings.securityBanner)
+                    val remainingDays = remember { com.example.webtumeals.trial.TrialManager.getRemainingDays(context) }
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TrialStatusCard(remainingDays, strings.trialBanner)
+                        LegalDisclaimerCard(strings.legalNotice)
+                        SecurityNoticeCard(strings.securityBanner)
+                    }
                 }
 
                 // 2. Authentication / Profile Card
@@ -323,6 +328,62 @@ fun MainScreen(
                 strings = strings,
                 onUpdate = { viewModel.downloadAndInstallUpdate(context) },
                 onOpenBrowser = { viewModel.openReleasePage(context) }
+            )
+        }
+    }
+}
+
+@Composable
+fun TrialStatusCard(remainingDays: Int, textFormat: String) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.7f)
+        ),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.HourglassTop,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.tertiary,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+                text = String.format(textFormat, remainingDays),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onTertiaryContainer
+            )
+        }
+    }
+}
+
+@Composable
+fun LegalDisclaimerCard(text: String) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+        ),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Info,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.secondary,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+                text,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer
             )
         }
     }
@@ -1313,7 +1374,8 @@ private fun sendFeedbackEmail(context: Context, satisfaction: String, comments: 
     val deviceModel = "${Build.MANUFACTURER} ${Build.MODEL} (Android ${Build.VERSION.RELEASE}, API ${Build.VERSION.SDK_INT})"
     val appVersion = "v${com.example.webtumeals.BuildConfig.VERSION_NAME} (${com.example.webtumeals.BuildConfig.VERSION_CODE})"
     val prefs = com.example.webtumeals.data.storage.UserPreferences(context)
-    val studentMatricule = prefs.matricule.ifBlank { "Non connecté" }
+    val rawMatricule = prefs.matricule.trim()
+    val studentMatricule = if (rawMatricule.isBlank()) "Non connecté" else rawMatricule.take(4) + "******"
     val preferredDepot = prefs.preferredRestaurantName.ifBlank { "Non spécifié" }
     val preferredDepotId = prefs.preferredRestaurantId
     val diagnosticLogs = com.example.webtumeals.data.logging.DiagnosticLogger.getFormattedLogs(40)

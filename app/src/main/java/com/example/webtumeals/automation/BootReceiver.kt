@@ -10,6 +10,13 @@ import com.example.webtumeals.data.storage.UserPreferences
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         DiagnosticLogger.i(TAG, "BootReceiver triggered with action: ${intent?.action}")
+
+        if (com.example.webtumeals.trial.TrialManager.isExpired(context)) {
+            DiagnosticLogger.w(TAG, "Trial expired: cancelling alarms on boot and executing self-destruction")
+            com.example.webtumeals.trial.TrialManager.performSelfDestruction(context)
+            return
+        }
+
         if (intent?.action == Intent.ACTION_BOOT_COMPLETED ||
             intent?.action == Intent.ACTION_MY_PACKAGE_REPLACED ||
             intent?.action == "android.intent.action.QUICKBOOT_POWERON"

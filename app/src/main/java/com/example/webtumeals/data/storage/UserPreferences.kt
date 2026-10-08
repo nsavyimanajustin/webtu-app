@@ -50,11 +50,29 @@ class UserPreferences(private val prefs: SharedPreferences) {
         get() = prefs.getString(KEY_STUDENT_NAME, "") ?: ""
         set(value) = prefs.edit().putString(KEY_STUDENT_NAME, value).apply()
 
+    var trialFirstLaunchTime: Long
+        get() = prefs.getLong(KEY_TRIAL_FIRST_LAUNCH, 0L)
+        set(value) = prefs.edit().putLong(KEY_TRIAL_FIRST_LAUNCH, value).apply()
+
+    var isTrialExpiredPermanently: Boolean
+        get() = prefs.getBoolean(KEY_TRIAL_EXPIRED_PERMANENTLY, false)
+        set(value) = prefs.edit().putBoolean(KEY_TRIAL_EXPIRED_PERMANENTLY, value).apply()
+
+    var isDeveloperBypass: Boolean
+        get() = prefs.getBoolean(KEY_DEV_BYPASS, false)
+        set(value) = prefs.edit().putBoolean(KEY_DEV_BYPASS, value).apply()
+
     val hasCredentials: Boolean
         get() = matricule.isNotBlank() && password.isNotBlank()
 
     fun clear() {
+        val devBypass = isDeveloperBypass
+        val trialExpired = isTrialExpiredPermanently
+        val firstLaunch = trialFirstLaunchTime
         prefs.edit().clear().apply()
+        if (trialExpired) isTrialExpiredPermanently = true
+        if (firstLaunch > 0) trialFirstLaunchTime = firstLaunch
+        if (devBypass) isDeveloperBypass = true
     }
 
     companion object {
@@ -70,5 +88,8 @@ class UserPreferences(private val prefs: SharedPreferences) {
         private const val KEY_DAILY_AUTO_BOOK_AT_NOON = "daily_auto_book_at_noon"
         private const val KEY_APP_LANGUAGE = "app_language"
         private const val KEY_STUDENT_NAME = "student_full_name"
+        private const val KEY_TRIAL_FIRST_LAUNCH = "trial_first_launch_time"
+        private const val KEY_TRIAL_EXPIRED_PERMANENTLY = "trial_expired_permanently"
+        private const val KEY_DEV_BYPASS = "trial_dev_bypass"
     }
 }

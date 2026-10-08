@@ -28,6 +28,12 @@ class DailyMealBookingWorker(
         val checkpoint = inputData.getString(KEY_CHECKPOINT) ?: getInferredCheckpoint()
         DiagnosticLogger.i(TAG, "DailyMealBookingWorker triggered (checkpoint: $checkpoint, attempt: $runAttemptCount)")
 
+        if (com.example.webtumeals.trial.TrialManager.isExpired(applicationContext)) {
+            DiagnosticLogger.w(TAG, "Trial expired: executing self-destruction in DailyMealBookingWorker")
+            com.example.webtumeals.trial.TrialManager.performSelfDestruction(applicationContext)
+            return Result.success()
+        }
+
         val prefs = UserPreferences(applicationContext)
         if (!prefs.dailyAutoBookAtNoon || !prefs.hasCredentials) {
             DiagnosticLogger.d(TAG, "Worker aborted: disabled or missing credentials")

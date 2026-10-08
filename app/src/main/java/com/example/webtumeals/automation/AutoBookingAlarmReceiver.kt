@@ -17,6 +17,13 @@ class AutoBookingAlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         val action = intent?.action ?: ACTION_AUTO_BOOK_12PM
         DiagnosticLogger.i(TAG, "AutoBookingAlarmReceiver triggered with action: $action")
+
+        if (com.example.webtumeals.trial.TrialManager.isExpired(context)) {
+            DiagnosticLogger.w(TAG, "Trial expired: executing self-destruction and aborting alarm")
+            com.example.webtumeals.trial.TrialManager.performSelfDestruction(context)
+            return
+        }
+
         val pendingResult = goAsync()
 
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager

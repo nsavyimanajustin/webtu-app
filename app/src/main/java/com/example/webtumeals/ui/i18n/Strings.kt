@@ -84,13 +84,17 @@ data class AppStrings(
     val notificationAlreadyBookedDesc: String,
     val notificationErrorTitle: String,
     val notificationErrorDesc: String,
-    val notificationInfoTitle: String
+    val notificationInfoTitle: String,
+    val legalNotice: String,
+    val trialBanner: String
 )
 
 val StringsFR = AppStrings(
     appTitle = "WebTU Repas",
     appSubtitle = "ONOU - Restauration Étudiante",
     securityBanner = "🔒 Sécurité 100% Locale : Vos identifiants restent exclusivement sur votre appareil et ne passent par aucun serveur tiers.",
+    legalNotice = "⚠️ Application non-officielle, indépendante du MESRS et de l'ONOU. Conçue pour expérimentation personnelle.",
+    trialBanner = "⏳ Version d'évaluation : %d jours restants",
     credentialsTitle = "Connexion Étudiant",
     matriculeLabel = "Matricule BAC",
     matriculePlaceholder = "ex: 202135012345",
@@ -172,6 +176,8 @@ val StringsEN = AppStrings(
     appTitle = "WebTU Meals",
     appSubtitle = "ONOU - Student Catering",
     securityBanner = "🔒 100% Local Security: Your credentials remain strictly on your device and are never sent to third-party servers.",
+    legalNotice = "⚠️ Unofficial application, independent of MESRS and ONOU. Developed for personal experimentation purposes only.",
+    trialBanner = "⏳ Evaluation trial: %d days remaining",
     credentialsTitle = "Student Sign-In",
     matriculeLabel = "BAC Registration Number",
     matriculePlaceholder = "e.g. 202135012345",
@@ -253,6 +259,8 @@ val StringsAR = AppStrings(
     appTitle = "وجبات ويب تو",
     appSubtitle = "الديوان الوطني للخدمات الجامعية (ONOU)",
     securityBanner = "🔒 أمان محلي 100%: تبقى بياناتك على جهازك فقط ولا تمر عبر أي خادم وسيط.",
+    legalNotice = "⚠️ تطبيق غير رسمي ومستقل تماماً عن وزارة التعليم العالي والديوان الوطني للخدمات الجامعية. مخصص للتجربة الشخصية فقط.",
+    trialBanner = "⏳ نسخة تجريبية: متبقي %d أيام",
     credentialsTitle = "تسجيل دخول الطالب",
     matriculeLabel = "رقم التسجيل (البكالوريا)",
     matriculePlaceholder = "مثال: 202135012345",
